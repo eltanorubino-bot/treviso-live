@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Treviso Live — Dashboard en Tiempo Real</title>
+<title>Treviso Live By Fer Rubino</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -79,6 +79,10 @@ body::before {
 }
 .clock { font-size: 14px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .clock b { color: var(--text); font-weight: 600; font-size: 18px; margin-right: 4px; }
+.header-clock-area { display: flex; align-items: center; gap: 16px; }
+.header-date { font-size: 12px; color: var(--text-dim); }
+.header-sun { font-size: 11px; color: var(--text-dim); display: flex; gap: 10px; }
+.header-sun span { display: flex; align-items: center; gap: 3px; }
 
 /* ========== GRID ========== */
 .dashboard {
@@ -317,6 +321,39 @@ body::before {
   display: flex; align-items: center; justify-content: center;
 }
 
+/* ========== NEWS ARTICLE READER ========== */
+.article-overlay {
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.85); backdrop-filter: blur(20px);
+  align-items: center; justify-content: center; padding: 24px;
+}
+.article-overlay.open { display: flex; }
+.article-panel {
+  background: var(--bg); border: 1px solid var(--card-border);
+  border-radius: 20px; max-width: 680px; width: 100%;
+  max-height: 85vh; overflow-y: auto; padding: 32px;
+  position: relative;
+}
+.article-panel::-webkit-scrollbar { width: 4px; }
+.article-panel::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 4px; }
+.article-close {
+  position: sticky; top: 0; float: right;
+  font-size: 20px; color: var(--text-dim); cursor: pointer;
+  background: var(--card); border: 1px solid var(--card-border);
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; z-index: 2;
+}
+.article-close:hover { color: var(--text); background: var(--card-hover); }
+.article-source { font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; }
+.article-title { font-size: 22px; font-weight: 600; line-height: 1.3; margin: 8px 0 16px; }
+.article-meta { font-size: 12px; color: var(--text-dim); margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border); }
+.article-body { font-size: 15px; line-height: 1.8; color: var(--text); }
+.article-body p { margin-bottom: 12px; }
+.article-body img { max-width: 100%; border-radius: 12px; margin: 12px 0; }
+.article-loading { text-align: center; padding: 40px; color: var(--text-dim); }
+.article-link { display: inline-block; margin-top: 16px; color: var(--accent); font-size: 13px; text-decoration: none; }
+.article-link:hover { text-decoration: underline; }
+
 /* ========== RESPONSIVE ========== */
 @media (max-width: 1024px) {
   .dashboard { grid-template-columns: repeat(6, 1fr); padding: 16px; gap: 12px; }
@@ -325,11 +362,14 @@ body::before {
 }
 @media (max-width: 640px) {
   .dashboard { grid-template-columns: 1fr; padding: 12px; }
-  .weather-card, .forecast-card, .webcam-card, .news-card, .photos-card, .events-card, .clock-card, .map-card { grid-column: span 1; }
+  .weather-card, .forecast-card, .webcam-card, .news-card, .photos-card, .events-card, .map-card { grid-column: span 1; }
   .forecast-week { grid-template-columns: repeat(4, 1fr); }
   .photo-grid { grid-template-columns: repeat(2, 1fr); }
-  .header { padding: 14px 16px; }
+  .header { padding: 14px 16px; flex-wrap: wrap; gap: 8px; }
   .header h1 { font-size: 16px; }
+  .header-clock-area { flex-wrap: wrap; gap: 8px; }
+  .header-sun { display: none !important; }
+  .article-panel { padding: 20px; margin: 8px; }
 }
 </style>
 </head>
@@ -339,11 +379,15 @@ body::before {
 <header class="header">
   <div class="header-left">
     <div class="logo">🏰</div>
-    <h1>Treviso <span>Live</span></h1>
+    <h1>Treviso <span>Live</span> <small style="font-size:11px;font-weight:400;color:var(--text-dim);letter-spacing:0;">By Fer Rubino</small></h1>
   </div>
   <div class="header-right">
     <span class="live-dot">En vivo</span>
-    <span class="clock" id="headerClock"></span>
+    <div class="header-clock-area">
+      <span class="clock" id="headerClock"></span>
+      <span class="header-date" id="headerDate"></span>
+      <span class="header-sun" id="headerSun"></span>
+    </div>
   </div>
 </header>
 
@@ -391,25 +435,20 @@ body::before {
     </div>
   </section>
 
-  <!-- WEBCAM 1 -->
+  <!-- WEBCAM — YouTube Live -->
   <section class="card webcam-card" id="webcamCard1">
-    <div class="card-title"><span class="icon">📹</span> Webcam en Vivo</div>
-    <div class="webcam-tabs" id="webcamTabs">
-      <button class="webcam-tab active" data-cam="piazza">Piazza dei Signori</button>
-      <button class="webcam-tab" data-cam="skyline">SkylineWebcams</button>
-      <button class="webcam-tab" data-cam="windy">Windy</button>
-    </div>
-    <div class="webcam-container" id="webcamContainer">
-      <iframe id="webcamFrame" src="https://www.webcamtaxi.com/en/italy/veneto/treviso-piazza-signori-square-cam.html"
-        allow="autoplay; encrypted-media" loading="lazy" title="Webcam Piazza dei Signori"></iframe>
-      <div class="webcam-label" id="webcamLabel">📍 Piazza dei Signori</div>
+    <div class="card-title"><span class="icon">📹</span> Webcam en Vivo · Treviso</div>
+    <div class="webcam-container">
+      <iframe src="https://www.youtube.com/embed/gtV9ROsnHWc?autoplay=1&mute=1&rel=0&modestbranding=1"
+        allow="autoplay; encrypted-media; fullscreen" allowfullscreen loading="lazy"
+        title="Webcam Treviso Live" style="height:380px;"></iframe>
     </div>
   </section>
 
-  <!-- WEBCAM 2 / MAP -->
+  <!-- TRAFFIC MAP -->
   <section class="card map-card" id="mapCard">
-    <iframe src="https://www.openstreetmap.org/export/embed.html?bbox=12.21%2C45.64%2C12.28%2C45.69&layer=mapnik&marker=45.6691%2C12.2431"
-      loading="lazy" title="Mapa de Treviso"></iframe>
+    <iframe src="https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d22000!2d12.2431!3d45.6691!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!5e0!3m2!1ses!2sit!4v1709000000000&layer=traffic"
+      loading="lazy" title="Tráfico en Treviso" style="filter:brightness(0.8) saturate(1.2);"></iframe>
   </section>
 
   <!-- NEWS -->
@@ -439,29 +478,6 @@ body::before {
     </div>
   </section>
 
-  <!-- CLOCK -->
-  <section class="card clock-card" id="clockCard">
-    <div class="card-title"><span class="icon">🕐</span> Hora Local</div>
-    <div class="clock-display">
-      <div class="clock-time" id="bigClock">--:--:--</div>
-      <div class="clock-date" id="bigDate">--</div>
-      <div class="clock-label">
-        <img src="https://flagcdn.com/w40/it.png" alt="IT"> Treviso, Veneto, Italia
-      </div>
-      <div class="sun-times">
-        <div class="sun-item">
-          <div class="sun-icon">🌅</div>
-          <div class="sun-time" id="sunrise">--:--</div>
-          <div class="sun-label">Amanecer</div>
-        </div>
-        <div class="sun-item">
-          <div class="sun-icon">🌇</div>
-          <div class="sun-time" id="sunset">--:--</div>
-          <div class="sun-label">Atardecer</div>
-        </div>
-      </div>
-    </div>
-  </section>
 
   <!-- PHOTOS -->
   <section class="card photos-card" id="photosCard">
@@ -501,11 +517,21 @@ body::before {
   <img id="lightboxImg" src="" alt="">
 </div>
 
+<!-- ARTICLE READER -->
+<div class="article-overlay" id="articleOverlay">
+  <div class="article-panel" id="articlePanel">
+    <button class="article-close" onclick="closeArticle()">&times;</button>
+    <div id="articleContent">
+      <div class="article-loading">Cargando artículo...</div>
+    </div>
+  </div>
+</div>
+
 <!-- FOOTER -->
 <footer class="footer">
-  Treviso Live Dashboard · Datos actualizados en tiempo real ·
+  Treviso Live By Fer Rubino · Datos actualizados en tiempo real ·
   Clima: <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a> ·
-  Fotos: <a href="https://unsplash.com" target="_blank">Unsplash</a> ·
+  Fotos: Wikimedia &amp; Flickr ·
   Noticias: RSS locales
 </footer>
 
@@ -554,11 +580,9 @@ function updateClock() {
   const h = String(now.getHours()).padStart(2,'0');
   const m = String(now.getMinutes()).padStart(2,'0');
   const s = String(now.getSeconds()).padStart(2,'0');
-  document.getElementById('bigClock').textContent = `${h}:${m}:${s}`;
-  document.getElementById('bigDate').textContent =
-    `${DAYS_ES[now.getDay()]} ${now.getDate()} de ${MONTHS_ES[now.getMonth()]} ${now.getFullYear()}`;
-  document.getElementById('headerClock').innerHTML =
-    `<b>${h}:${m}</b> Treviso`;
+  document.getElementById('headerClock').innerHTML = `<b>${h}:${m}:${s}</b>`;
+  document.getElementById('headerDate').textContent =
+    `${DAYS_ES[now.getDay()]} ${now.getDate()} de ${MONTHS_ES[now.getMonth()]}`;
 }
 setInterval(updateClock, 1000);
 updateClock();
@@ -582,11 +606,12 @@ async function loadWeather() {
     document.getElementById('wxWind').textContent = `${Math.round(c.wind_speed_10m)} km/h`;
     document.getElementById('wxPressure').textContent = `${Math.round(c.surface_pressure)} hPa`;
 
-    // Sunrise/Sunset (today)
+    // Sunrise/Sunset (today) — in header
     const sr = new Date(data.daily.sunrise[0]);
     const ss = new Date(data.daily.sunset[0]);
-    document.getElementById('sunrise').textContent = `${String(sr.getHours()).padStart(2,'0')}:${String(sr.getMinutes()).padStart(2,'0')}`;
-    document.getElementById('sunset').textContent = `${String(ss.getHours()).padStart(2,'0')}:${String(ss.getMinutes()).padStart(2,'0')}`;
+    const srStr = `${String(sr.getHours()).padStart(2,'0')}:${String(sr.getMinutes()).padStart(2,'0')}`;
+    const ssStr = `${String(ss.getHours()).padStart(2,'0')}:${String(ss.getMinutes()).padStart(2,'0')}`;
+    document.getElementById('headerSun').innerHTML = `<span>🌅 ${srStr}</span><span>🌇 ${ssStr}</span>`;
 
     // 7-day forecast
     const fc = data.daily;
@@ -615,23 +640,97 @@ loadWeather();
 setInterval(loadWeather, 600000); // refresh every 10 min
 
 // ============================================================
-//  WEBCAM TABS
+//  ARTICLE READER (inline news)
 // ============================================================
-const CAMS = {
-  piazza: { url: 'https://www.webcamtaxi.com/en/italy/veneto/treviso-piazza-signori-square-cam.html', label: '📍 Piazza dei Signori' },
-  skyline: { url: 'https://www.skylinewebcams.com/en/webcam/italia/veneto/treviso.html', label: '📍 SkylineWebcams Treviso' },
-  windy: { url: 'https://www.windy.com/webcams/1252918171', label: '📍 Windy — Vista A27' }
-};
-document.getElementById('webcamTabs').addEventListener('click', e => {
-  if (!e.target.classList.contains('webcam-tab')) return;
-  document.querySelectorAll('.webcam-tab').forEach(t => t.classList.remove('active'));
-  e.target.classList.add('active');
-  const cam = CAMS[e.target.dataset.cam];
-  if (cam) {
-    document.getElementById('webcamFrame').src = cam.url;
-    document.getElementById('webcamLabel').textContent = cam.label;
-  }
+function closeArticle() {
+  document.getElementById('articleOverlay').classList.remove('open');
+}
+document.getElementById('articleOverlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeArticle();
 });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeArticle();
+});
+
+async function openArticle(title, source, link, pubDate, thumbnail) {
+  const overlay = document.getElementById('articleOverlay');
+  const content = document.getElementById('articleContent');
+  overlay.classList.add('open');
+  content.innerHTML = `<div class="article-loading">⏳ Cargando artículo...</div>`;
+
+  // Try to fetch and extract article content via CORS proxy
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(link)}`,
+    `https://corsproxy.io/?${encodeURIComponent(link)}`
+  ];
+
+  let articleText = '';
+  for (const proxy of proxies) {
+    try {
+      const res = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+      const html = await res.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      // Remove scripts, styles, nav, footer, ads
+      doc.querySelectorAll('script,style,nav,footer,aside,iframe,.adv,.ads,.cookie-banner,header').forEach(el => el.remove());
+
+      // Try to find article body
+      const articleEl = doc.querySelector('article') || doc.querySelector('.article-body') || doc.querySelector('.entry-content') ||
+        doc.querySelector('.article__body') || doc.querySelector('.story-body') || doc.querySelector('[itemprop="articleBody"]') ||
+        doc.querySelector('.article-text') || doc.querySelector('.content-article') || doc.querySelector('.post-content');
+
+      if (articleEl) {
+        // Get paragraphs
+        const paragraphs = articleEl.querySelectorAll('p');
+        if (paragraphs.length > 0) {
+          articleText = Array.from(paragraphs)
+            .map(p => p.textContent.trim())
+            .filter(t => t.length > 30)
+            .slice(0, 15)
+            .map(t => `<p>${t}</p>`)
+            .join('');
+        } else {
+          articleText = `<p>${articleEl.textContent.trim().substring(0, 2000)}</p>`;
+        }
+      } else {
+        // Fallback: grab all <p> from body
+        const allP = doc.querySelectorAll('body p');
+        articleText = Array.from(allP)
+          .map(p => p.textContent.trim())
+          .filter(t => t.length > 40)
+          .slice(0, 12)
+          .map(t => `<p>${t}</p>`)
+          .join('');
+      }
+
+      if (articleText.length > 100) break;
+    } catch(e) { /* try next proxy */ }
+  }
+
+  const imgHtml = thumbnail ? `<img src="${thumbnail}" alt="" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:16px;" onerror="this.style.display='none'">` : '';
+  const ago = pubDate ? timeAgo(new Date(pubDate)) : '';
+
+  if (articleText.length > 100) {
+    content.innerHTML = `
+      <div class="article-source">${source}</div>
+      <div class="article-title">${title}</div>
+      <div class="article-meta">${ago}</div>
+      ${imgHtml}
+      <div class="article-body">${articleText}</div>
+      <a class="article-link" href="${link}" target="_blank" rel="noopener">🔗 Ver artículo completo en ${source} →</a>`;
+  } else {
+    content.innerHTML = `
+      <div class="article-source">${source}</div>
+      <div class="article-title">${title}</div>
+      <div class="article-meta">${ago}</div>
+      ${imgHtml}
+      <div class="article-body">
+        <p style="color:var(--text-dim);">No se pudo extraer el contenido completo. Podés leer la nota directamente en el portal:</p>
+      </div>
+      <a class="article-link" href="${link}" target="_blank" rel="noopener">🔗 Leer en ${source} →</a>`;
+  }
+}
 
 // ============================================================
 //  NEWS (via multiple RSS proxy services with fallback)
@@ -714,15 +813,19 @@ function renderNews() {
   list.innerHTML = filtered.slice(0, 12).map(n => {
     const ago = timeAgo(n.pubDate);
     const img = n.thumbnail ? `<img class="news-img" src="${n.thumbnail}" alt="" loading="lazy" onerror="this.style.display='none'">` : '';
+    const safeTitle = n.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const safeSource = n.source.replace(/'/g, "\\'");
+    const safeLink = n.link.replace(/'/g, "\\'");
+    const safeThumb = (n.thumbnail || '').replace(/'/g, "\\'");
     return `
-      <a class="news-item" href="${n.link}" target="_blank" rel="noopener">
+      <div class="news-item" onclick="openArticle('${safeTitle}','${safeSource}','${safeLink}','${n.pubDate.toISOString()}','${safeThumb}')">
         ${img}
         <div class="news-body">
           <div class="news-source">${n.source}</div>
           <div class="news-headline">${n.title}</div>
           <div class="news-time">${ago}</div>
         </div>
-      </a>`;
+      </div>`;
   }).join('');
 }
 
