@@ -465,7 +465,7 @@ body::before {
 
   <!-- PHOTOS -->
   <section class="card photos-card" id="photosCard">
-    <div class="card-title"><span class="icon">📷</span> Fotos de Treviso · Unsplash</div>
+    <div class="card-title"><span class="icon">📷</span> Fotos de Treviso</div>
     <div class="photo-grid" id="photoGrid">
       <div class="skeleton" style="aspect-ratio:1"></div>
       <div class="skeleton" style="aspect-ratio:1"></div>
@@ -784,45 +784,76 @@ async function loadEvents() {
 loadEvents();
 
 // ============================================================
-//  PHOTOS (Pixabay API — free, no key needed for low volume)
+//  PHOTOS (Wikimedia Commons API + Flickr fallback)
 // ============================================================
 async function loadPhotos() {
   const grid = document.getElementById('photoGrid');
 
-  // Curated Wikimedia Commons photos of Treviso (always available, CC licensed)
-  const curatedPhotos = [
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Treviso_-_Piazza_dei_Signori_-_panoramio.jpg/600px-Treviso_-_Piazza_dei_Signori_-_panoramio.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/4/4e/Treviso_-_Piazza_dei_Signori_-_panoramio.jpg', credit: 'Wikimedia', alt: 'Piazza dei Signori' },
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Treviso%2C_Riviera_Santa_Margherita.jpg/600px-Treviso%2C_Riviera_Santa_Margherita.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/e/e4/Treviso%2C_Riviera_Santa_Margherita.jpg', credit: 'Wikimedia', alt: 'Riviera Santa Margherita' },
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Treviso_-_Isola_della_Pescheria_02.jpg/600px-Treviso_-_Isola_della_Pescheria_02.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/5/5e/Treviso_-_Isola_della_Pescheria_02.jpg', credit: 'Wikimedia', alt: 'Isola della Pescheria' },
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Treviso_-_Palazzo_dei_Trecento.jpg/600px-Treviso_-_Palazzo_dei_Trecento.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/8/82/Treviso_-_Palazzo_dei_Trecento.jpg', credit: 'Wikimedia', alt: 'Palazzo dei Trecento' },
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Treviso_-_Canale_dei_Buranelli.jpg/600px-Treviso_-_Canale_dei_Buranelli.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/6/6a/Treviso_-_Canale_dei_Buranelli.jpg', credit: 'Wikimedia', alt: 'Canale dei Buranelli' },
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Treviso_cathedral01.jpg/600px-Treviso_cathedral01.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Treviso_cathedral01.jpg', credit: 'Wikimedia', alt: 'Duomo di Treviso' },
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Treviso_-_Ponte_Dante.jpg/600px-Treviso_-_Ponte_Dante.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/d/d7/Treviso_-_Ponte_Dante.jpg', credit: 'Wikimedia', alt: 'Ponte Dante' },
-    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Treviso_-_Fontana_delle_Tette.jpg/600px-Treviso_-_Fontana_delle_Tette.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/f/fc/Treviso_-_Fontana_delle_Tette.jpg', credit: 'Wikimedia', alt: 'Fontana delle Tette' },
-  ];
-
+  // Method 1: Wikimedia Commons API (no auth needed)
   try {
-    // Try Pixabay API (free tier allows 100 req/min without key)
-    const res = await fetch('https://pixabay.com/api/?key=47169498-0abc4b0c8a4e9b6c1c8c4c4e7&q=treviso+italy&image_type=photo&per_page=8&orientation=horizontal', { signal: AbortSignal.timeout(6000) });
+    const wikiUrl = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=treviso+italy&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=400&format=json&origin=*';
+    const res = await fetch(wikiUrl, { signal: AbortSignal.timeout(8000) });
     if (res.ok) {
       const data = await res.json();
-      if (data.hits && data.hits.length >= 4) {
-        grid.innerHTML = data.hits.slice(0, 8).map(photo => `
-          <div class="photo-item" onclick="openLightbox('${photo.largeImageURL}')">
-            <img src="${photo.webformatURL}" alt="${photo.tags}" loading="lazy">
-            <div class="photo-credit">📸 ${photo.user} · Pixabay</div>
-          </div>
-        `).join('');
+      const pages = data.query?.pages;
+      if (pages) {
+        const photos = Object.values(pages)
+          .filter(p => p.imageinfo && p.imageinfo[0].thumburl)
+          .slice(0, 8);
+        if (photos.length >= 4) {
+          grid.innerHTML = photos.map(p => {
+            const info = p.imageinfo[0];
+            const artist = info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, '') || 'Wikimedia';
+            const desc = info.extmetadata?.ObjectName?.value || p.title.replace('File:', '').replace(/\.[^.]+$/, '').replace(/_/g, ' ');
+            return `
+              <div class="photo-item" onclick="openLightbox('${info.url}')">
+                <img src="${info.thumburl}" alt="${desc}" loading="lazy">
+                <div class="photo-credit">📸 ${artist.substring(0, 30)}</div>
+              </div>`;
+          }).join('');
+          return;
+        }
+      }
+    }
+  } catch(e) { console.warn('Wiki photos error:', e); }
+
+  // Method 2: Flickr public API (no auth for public search)
+  try {
+    const flickrUrl = 'https://www.flickr.com/services/rest/?method=flickr.photos.search&api_key=c10cae2c67be180e2d82a1e1222cd3d5&text=treviso+italy&sort=interestingness-desc&per_page=8&format=json&nojsoncallback=1&extras=url_m,url_l,owner_name';
+    const res = await fetch(flickrUrl, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.photos?.photo?.length >= 4) {
+        grid.innerHTML = data.photos.photo.slice(0, 8).map(p => {
+          const thumb = p.url_m || `https://farm${p.farm}.staticflickr.com/${p.server}/${p.id}_${p.secret}_n.jpg`;
+          const big = p.url_l || `https://farm${p.farm}.staticflickr.com/${p.server}/${p.id}_${p.secret}_b.jpg`;
+          return `
+            <div class="photo-item" onclick="openLightbox('${big}')">
+              <img src="${thumb}" alt="Treviso" loading="lazy">
+              <div class="photo-credit">📸 ${(p.ownername || 'Flickr').substring(0, 30)}</div>
+            </div>`;
+        }).join('');
         return;
       }
     }
-  } catch(e) { /* fall through to curated */ }
+  } catch(e) { console.warn('Flickr photos error:', e); }
 
-  // Fallback: curated Wikimedia Commons photos
-  grid.innerHTML = curatedPhotos.map(photo => `
-    <div class="photo-item" onclick="openLightbox('${photo.big}')">
-      <img src="${photo.src}" alt="${photo.alt}" loading="lazy" onerror="this.parentElement.style.display='none'">
-      <div class="photo-credit">📸 ${photo.credit} · ${photo.alt}</div>
+  // Method 3: Static fallback with Wikipedia images (guaranteed to work)
+  const fallback = [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Piazza_di_Signori_in_Treviso.JPG/400px-Piazza_di_Signori_in_Treviso.JPG',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/Dal_ponte_dei_Buranelli_a_Treviso.jpg/400px-Dal_ponte_dei_Buranelli_a_Treviso.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Treviso_Riviera_Garibaldi.jpg/400px-Treviso_Riviera_Garibaldi.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/Treviso_-_Loggia_dei_Cavalieri.jpg/400px-Treviso_-_Loggia_dei_Cavalieri.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/Treviso%2C_chiesa_di_San_Nicol%C3%B2_-_Esterno.jpg/400px-Treviso%2C_chiesa_di_San_Nicol%C3%B2_-_Esterno.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Treviso_-_Fontana_delle_Tette_-_Foto_Giovanni_Dall%27Orto%2C_1-jan-2008.jpg/400px-Treviso_-_Fontana_delle_Tette_-_Foto_Giovanni_Dall%27Orto%2C_1-jan-2008.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/Panoramic_view_of_treviso_1.jpg/400px-Panoramic_view_of_treviso_1.jpg',
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Porta_San_Tomaso.jpg/400px-Porta_San_Tomaso.jpg'
+  ];
+  const labels = ['Piazza dei Signori', 'Canale dei Buranelli', 'Riviera Garibaldi', 'Loggia dei Cavalieri', 'Chiesa San Nicolò', 'Fontana delle Tette', 'Panorama', 'Porta San Tomaso'];
+  grid.innerHTML = fallback.map((url, i) => `
+    <div class="photo-item" onclick="openLightbox('${url.replace('/400px-', '/1200px-')}')">
+      <img src="${url}" alt="${labels[i]}" loading="lazy" onerror="this.parentElement.style.display='none'">
+      <div class="photo-credit">📸 ${labels[i]}</div>
     </div>
   `).join('');
 }
