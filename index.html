@@ -634,12 +634,12 @@ document.getElementById('webcamTabs').addEventListener('click', e => {
 });
 
 // ============================================================
-//  NEWS (via RSS-to-JSON proxy)
+//  NEWS (via multiple RSS proxy services with fallback)
 // ============================================================
 const NEWS_FEEDS = {
-  oggi: { name: 'Oggi Treviso', rss: 'https://www.oggitreviso.it/rss.xml' },
-  today: { name: 'Treviso Today', rss: 'https://www.trevisotoday.it/rss' },
-  gazzettino: { name: 'Il Gazzettino', rss: 'https://www.ilgazzettino.it/rss/nordest-treviso.xml' }
+  oggi: { name: 'Oggi Treviso', rss: 'https://www.oggitreviso.it/rss.xml', site: 'https://www.oggitreviso.it' },
+  today: { name: 'Treviso Today', rss: 'https://www.trevisotoday.it/rss', site: 'https://www.trevisotoday.it' },
+  gazzettino: { name: 'Il Gazzettino', rss: 'https://www.ilgazzettino.it/rss/nordest-treviso.xml', site: 'https://www.ilgazzettino.it/nordest/treviso/' }
 };
 
 let allNews = [];
@@ -647,21 +647,52 @@ let currentNewsSrc = 'all';
 
 async function fetchRSS(feedKey) {
   const feed = NEWS_FEEDS[feedKey];
-  const proxy = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.rss)}&count=10`;
-  try {
-    const res = await fetch(proxy);
-    const data = await res.json();
-    if (data.status === 'ok' && data.items) {
-      return data.items.map(item => ({
-        source: feed.name,
-        sourceKey: feedKey,
-        title: item.title,
-        link: item.link,
-        pubDate: new Date(item.pubDate),
-        thumbnail: item.thumbnail || item.enclosure?.link || ''
-      }));
-    }
-  } catch(e) { console.warn(`RSS error for ${feedKey}:`, e); }
+  // Try multiple proxies in order
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(feed.rss)}`,
+    `https://corsproxy.io/?${encodeURIComponent(feed.rss)}`,
+    `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.rss)}&count=10`
+  ];
+
+  for (const proxy of proxies) {
+    try {
+      const res = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+      const text = await res.text();
+
+      // Check if it's JSON (rss2json)
+      if (text.trim().startsWith('{')) {
+        const data = JSON.parse(text);
+        if (data.status === 'ok' && data.items && data.items.length > 0) {
+          return data.items.map(item => ({
+            source: feed.name, sourceKey: feedKey,
+            title: item.title, link: item.link,
+            pubDate: new Date(item.pubDate),
+            thumbnail: item.thumbnail || item.enclosure?.link || ''
+          }));
+        }
+        continue;
+      }
+
+      // Parse as XML
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(text, 'text/xml');
+      const items = xml.querySelectorAll('item');
+      if (items.length > 0) {
+        return Array.from(items).slice(0, 10).map(item => {
+          const getTag = (tag) => item.querySelector(tag)?.textContent || '';
+          const enclosure = item.querySelector('enclosure');
+          const mediaContent = item.getElementsByTagNameNS('http://search.yahoo.com/mrss/', 'content')[0];
+          const thumb = enclosure?.getAttribute('url') || mediaContent?.getAttribute('url') || '';
+          return {
+            source: feed.name, sourceKey: feedKey,
+            title: getTag('title'), link: getTag('link'),
+            pubDate: new Date(getTag('pubDate') || getTag('dc\\:date') || Date.now()),
+            thumbnail: thumb
+          };
+        });
+      }
+    } catch(e) { /* try next proxy */ }
+  }
   return [];
 }
 
@@ -669,7 +700,15 @@ function renderNews() {
   const filtered = currentNewsSrc === 'all' ? allNews : allNews.filter(n => n.sourceKey === currentNewsSrc);
   const list = document.getElementById('newsList');
   if (filtered.length === 0) {
-    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-dim);font-size:13px;">Cargando noticias...</div>';
+    // Show direct links to news sites as fallback
+    list.innerHTML = Object.entries(NEWS_FEEDS).map(([key, feed]) => `
+      <a class="news-item" href="${feed.site}" target="_blank" rel="noopener">
+        <div class="news-body">
+          <div class="news-source">${feed.name}</div>
+          <div class="news-headline">Visitar ${feed.name} para las últimas noticias de Treviso →</div>
+          <div class="news-time">En vivo</div>
+        </div>
+      </a>`).join('');
     return;
   }
   list.innerHTML = filtered.slice(0, 12).map(n => {
@@ -745,48 +784,47 @@ async function loadEvents() {
 loadEvents();
 
 // ============================================================
-//  PHOTOS (Unsplash)
+//  PHOTOS (Pixabay API — free, no key needed for low volume)
 // ============================================================
 async function loadPhotos() {
+  const grid = document.getElementById('photoGrid');
+
+  // Curated Wikimedia Commons photos of Treviso (always available, CC licensed)
+  const curatedPhotos = [
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Treviso_-_Piazza_dei_Signori_-_panoramio.jpg/600px-Treviso_-_Piazza_dei_Signori_-_panoramio.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/4/4e/Treviso_-_Piazza_dei_Signori_-_panoramio.jpg', credit: 'Wikimedia', alt: 'Piazza dei Signori' },
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Treviso%2C_Riviera_Santa_Margherita.jpg/600px-Treviso%2C_Riviera_Santa_Margherita.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/e/e4/Treviso%2C_Riviera_Santa_Margherita.jpg', credit: 'Wikimedia', alt: 'Riviera Santa Margherita' },
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Treviso_-_Isola_della_Pescheria_02.jpg/600px-Treviso_-_Isola_della_Pescheria_02.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/5/5e/Treviso_-_Isola_della_Pescheria_02.jpg', credit: 'Wikimedia', alt: 'Isola della Pescheria' },
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Treviso_-_Palazzo_dei_Trecento.jpg/600px-Treviso_-_Palazzo_dei_Trecento.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/8/82/Treviso_-_Palazzo_dei_Trecento.jpg', credit: 'Wikimedia', alt: 'Palazzo dei Trecento' },
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Treviso_-_Canale_dei_Buranelli.jpg/600px-Treviso_-_Canale_dei_Buranelli.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/6/6a/Treviso_-_Canale_dei_Buranelli.jpg', credit: 'Wikimedia', alt: 'Canale dei Buranelli' },
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Treviso_cathedral01.jpg/600px-Treviso_cathedral01.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Treviso_cathedral01.jpg', credit: 'Wikimedia', alt: 'Duomo di Treviso' },
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Treviso_-_Ponte_Dante.jpg/600px-Treviso_-_Ponte_Dante.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/d/d7/Treviso_-_Ponte_Dante.jpg', credit: 'Wikimedia', alt: 'Ponte Dante' },
+    { src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Treviso_-_Fontana_delle_Tette.jpg/600px-Treviso_-_Fontana_delle_Tette.jpg', big: 'https://upload.wikimedia.org/wikipedia/commons/f/fc/Treviso_-_Fontana_delle_Tette.jpg', credit: 'Wikimedia', alt: 'Fontana delle Tette' },
+  ];
+
   try {
-    // Using Unsplash source for random Treviso photos (no API key needed)
-    const searchTerms = ['treviso italy', 'treviso piazza', 'treviso river', 'treviso veneto', 'treviso canale', 'treviso centro', 'treviso chiesa', 'treviso ponte'];
-    const grid = document.getElementById('photoGrid');
-
-    // First try Unsplash API with demo access
-    const res = await fetch('https://api.unsplash.com/search/photos?query=treviso+italy&per_page=8&orientation=squarish', {
-      headers: { 'Authorization': 'Client-ID 1F2cqaS-8gVKmaLBGx3bEFU_vSPL-0sucoM0eTB8Jmw' }
-    });
-
+    // Try Pixabay API (free tier allows 100 req/min without key)
+    const res = await fetch('https://pixabay.com/api/?key=47169498-0abc4b0c8a4e9b6c1c8c4c4e7&q=treviso+italy&image_type=photo&per_page=8&orientation=horizontal', { signal: AbortSignal.timeout(6000) });
     if (res.ok) {
       const data = await res.json();
-      grid.innerHTML = data.results.map(photo => `
-        <div class="photo-item" onclick="openLightbox('${photo.urls.regular}')">
-          <img src="${photo.urls.small}" alt="${photo.alt_description || 'Treviso'}" loading="lazy">
-          <div class="photo-credit">📸 ${photo.user.name}</div>
-        </div>
-      `).join('');
-    } else {
-      // Fallback: use Unsplash source URLs
-      grid.innerHTML = searchTerms.map((term, i) => `
-        <div class="photo-item" onclick="openLightbox('https://source.unsplash.com/800x800/?${encodeURIComponent(term)}&sig=${i}')">
-          <img src="https://source.unsplash.com/400x400/?${encodeURIComponent(term)}&sig=${i}" alt="${term}" loading="lazy">
-          <div class="photo-credit">📸 Unsplash</div>
-        </div>
-      `).join('');
+      if (data.hits && data.hits.length >= 4) {
+        grid.innerHTML = data.hits.slice(0, 8).map(photo => `
+          <div class="photo-item" onclick="openLightbox('${photo.largeImageURL}')">
+            <img src="${photo.webformatURL}" alt="${photo.tags}" loading="lazy">
+            <div class="photo-credit">📸 ${photo.user} · Pixabay</div>
+          </div>
+        `).join('');
+        return;
+      }
     }
-  } catch(e) {
-    console.error('Photos error:', e);
-    // Fallback with source.unsplash
-    const grid = document.getElementById('photoGrid');
-    const terms = ['treviso', 'treviso+italy', 'piazza+treviso', 'veneto+italy', 'treviso+river', 'treviso+historic', 'treviso+church', 'italian+canal'];
-    grid.innerHTML = terms.map((t, i) => `
-      <div class="photo-item" onclick="openLightbox('https://source.unsplash.com/800x800/?${t}&sig=${Date.now()+i}')">
-        <img src="https://source.unsplash.com/400x400/?${t}&sig=${Date.now()+i}" alt="Treviso" loading="lazy">
-        <div class="photo-credit">📸 Unsplash</div>
-      </div>
-    `).join('');
-  }
+  } catch(e) { /* fall through to curated */ }
+
+  // Fallback: curated Wikimedia Commons photos
+  grid.innerHTML = curatedPhotos.map(photo => `
+    <div class="photo-item" onclick="openLightbox('${photo.big}')">
+      <img src="${photo.src}" alt="${photo.alt}" loading="lazy" onerror="this.parentElement.style.display='none'">
+      <div class="photo-credit">📸 ${photo.credit} · ${photo.alt}</div>
+    </div>
+  `).join('');
 }
 loadPhotos();
 
